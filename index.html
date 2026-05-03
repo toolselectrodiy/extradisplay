@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ExtraDisplay</title>
+    <meta
+      name="description"
+      content="ExtraDisplay streams a Mac display to a Tesla browser over local Wi-Fi using WebRTC, with optional Tesla touch forwarding back to macOS."
+    />
+    <meta property="og:title" content="ExtraDisplay" />
+    <meta
+      property="og:description"
+      content="A native macOS prototype for turning a Tesla browser into a low-latency extra display."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="assets/extradisplay-icon.png" />
+    <link rel="icon" href="assets/extradisplay-icon.png" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d1117;
+        --bg-soft: #151b23;
+        --panel: #f3f7fb;
+        --panel-ink: #17202a;
+        --ink: #f7fafc;
+        --muted: #aab8c8;
+        --line: rgba(255, 255, 255, 0.14);
+        --blue: #58a6ff;
+        --green: #55d187;
+        --red: #ff6b6b;
+        --gold: #f2c94c;
+        --steel: #8ea0b8;
+        --shadow: 0 24px 80px rgba(0, 0, 0, 0.36);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at top left, rgba(88, 166, 255, 0.16), transparent 38rem),
+          linear-gradient(180deg, #0d1117 0%, #111620 46%, #17151b 100%);
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        line-height: 1.5;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .shell {
+        width: min(1120px, calc(100% - 40px));
+        margin: 0 auto;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        border-bottom: 1px solid var(--line);
+        background: rgba(13, 17, 23, 0.82);
+        backdrop-filter: blur(18px);
+      }
+
+      .nav {
+        display: flex;
+        min-height: 72px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 750;
+        text-decoration: none;
+      }
+
+      .brand img {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        box-shadow: 0 10px 26px rgba(88, 166, 255, 0.22);
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        color: var(--muted);
+        font-size: 0.94rem;
+      }
+
+      .nav-links a {
+        text-decoration: none;
+      }
+
+      .nav-links a:hover {
+        color: var(--ink);
+      }
+
+      .hero {
+        position: relative;
+        overflow: hidden;
+        min-height: calc(100vh - 72px);
+        padding: 72px 0 52px;
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 0.92fr) minmax(420px, 1.08fr);
+        align-items: center;
+        gap: 56px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 22px;
+        color: #c5d4e7;
+        font-size: 0.92rem;
+        font-weight: 700;
+      }
+
+      .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: 0 0 0 6px rgba(85, 209, 135, 0.12);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 10ch;
+        margin-bottom: 22px;
+        font-size: clamp(4rem, 8vw, 8.2rem);
+        line-height: 0.86;
+        letter-spacing: 0;
+      }
+
+      .lede {
+        max-width: 640px;
+        margin-bottom: 30px;
+        color: #cfdae8;
+        font-size: clamp(1.12rem, 2vw, 1.34rem);
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .button {
+        display: inline-flex;
+        min-height: 48px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        padding: 0 18px;
+        font-weight: 750;
+        text-decoration: none;
+      }
+
+      .button.primary {
+        background: var(--ink);
+        color: #111620;
+      }
+
+      .button.secondary {
+        border-color: var(--line);
+        color: #d8e4f2;
+      }
+
+      .tesla-stage {
+        position: relative;
+        min-height: 540px;
+      }
+
+      .mac-window {
+        position: absolute;
+        top: 0;
+        right: 10px;
+        width: min(520px, 100%);
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 8px;
+        background: #f7fafc;
+        box-shadow: var(--shadow);
+      }
+
+      .chrome {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 34px;
+        border-bottom: 1px solid rgba(15, 23, 42, 0.12);
+        padding: 0 13px;
+      }
+
+      .chrome span {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+      }
+
+      .chrome span:nth-child(1) {
+        background: var(--red);
+      }
+
+      .chrome span:nth-child(2) {
+        background: var(--gold);
+      }
+
+      .chrome span:nth-child(3) {
+        background: var(--green);
+      }
+
+      .app-panel {
+        display: grid;
+        grid-template-columns: 84px 1fr;
+        gap: 20px;
+        padding: 26px;
+        color: var(--panel-ink);
+      }
+
+      .app-panel img {
+        width: 84px;
+        height: 84px;
+        border-radius: 18px;
+      }
+
+      .app-panel h2 {
+        margin-bottom: 8px;
+        font-size: 1.45rem;
+        line-height: 1.1;
+      }
+
+      .app-panel p {
+        margin-bottom: 18px;
+        color: #4b5c70;
+      }
+
+      .control-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: center;
+        border: 1px solid #d7e0ea;
+        border-radius: 8px;
+        padding: 12px;
+        background: #ffffff;
+      }
+
+      .url {
+        color: #334155;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.9rem;
+        overflow-wrap: anywhere;
+      }
+
+      .pill {
+        border-radius: 999px;
+        background: #e8f8ef;
+        color: #147342;
+        padding: 6px 10px;
+        font-size: 0.78rem;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .car-screen {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        width: min(650px, 100%);
+        border: 12px solid #05070a;
+        border-radius: 26px;
+        background: #05070a;
+        box-shadow: var(--shadow);
+      }
+
+      .stream {
+        display: grid;
+        min-height: 310px;
+        grid-template-columns: 1fr 0.72fr;
+        gap: 16px;
+        overflow: hidden;
+        border-radius: 14px;
+        background: #111827;
+        padding: 18px;
+      }
+
+      .screen-main {
+        min-height: 274px;
+        border-radius: 8px;
+        background:
+          linear-gradient(135deg, rgba(85, 209, 135, 0.2), transparent 34%),
+          linear-gradient(160deg, #25364a 0%, #0b1623 100%);
+        padding: 18px;
+      }
+
+      .display-card {
+        height: 100%;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.08);
+        padding: 16px;
+      }
+
+      .display-card strong {
+        display: block;
+        margin-bottom: 14px;
+        color: #f8fafc;
+        font-size: 1.12rem;
+      }
+
+      .bars {
+        display: grid;
+        gap: 10px;
+      }
+
+      .bars i {
+        display: block;
+        height: 11px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.26);
+      }
+
+      .bars i:nth-child(1) {
+        width: 84%;
+      }
+
+      .bars i:nth-child(2) {
+        width: 62%;
+      }
+
+      .bars i:nth-child(3) {
+        width: 74%;
+      }
+
+      .touch-panel {
+        display: grid;
+        align-content: space-between;
+        gap: 16px;
+      }
+
+      .touch-tile {
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.08);
+        padding: 16px;
+      }
+
+      .touch-tile span {
+        display: block;
+        color: var(--steel);
+        font-size: 0.8rem;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .touch-tile strong {
+        display: block;
+        margin-top: 8px;
+        color: #f8fafc;
+        font-size: 1.35rem;
+      }
+
+      .section {
+        padding: 86px 0;
+      }
+
+      .section h2 {
+        max-width: 720px;
+        margin-bottom: 18px;
+        font-size: clamp(2rem, 4vw, 3.4rem);
+        line-height: 1;
+      }
+
+      .section-lede {
+        max-width: 720px;
+        color: var(--muted);
+        font-size: 1.08rem;
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 18px;
+        margin-top: 34px;
+      }
+
+      .feature {
+        min-height: 210px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.045);
+        padding: 24px;
+      }
+
+      .feature b {
+        display: inline-grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border-radius: 8px;
+        margin-bottom: 26px;
+        background: rgba(88, 166, 255, 0.14);
+        color: #b8dcff;
+        font-size: 1.1rem;
+      }
+
+      .feature h3 {
+        margin-bottom: 9px;
+        font-size: 1.12rem;
+      }
+
+      .feature p {
+        margin-bottom: 0;
+        color: var(--muted);
+      }
+
+      .setup {
+        display: grid;
+        grid-template-columns: 0.82fr 1.18fr;
+        gap: 42px;
+        align-items: start;
+      }
+
+      .steps {
+        display: grid;
+        gap: 12px;
+        counter-reset: setup;
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: 46px 1fr;
+        gap: 16px;
+        align-items: start;
+        border-bottom: 1px solid var(--line);
+        padding: 0 0 18px;
+      }
+
+      .step::before {
+        counter-increment: setup;
+        content: counter(setup);
+        display: grid;
+        width: 36px;
+        height: 36px;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: #d8e4f2;
+        font-weight: 800;
+      }
+
+      .step h3 {
+        margin-bottom: 4px;
+        font-size: 1rem;
+      }
+
+      .step p {
+        margin-bottom: 0;
+        color: var(--muted);
+      }
+
+      .notice {
+        border-top: 1px solid var(--line);
+        padding: 34px 0 56px;
+        color: var(--muted);
+        font-size: 0.96rem;
+      }
+
+      .notice strong {
+        color: var(--ink);
+      }
+
+      @media (max-width: 900px) {
+        .hero {
+          padding-top: 48px;
+        }
+
+        .hero-grid,
+        .setup {
+          grid-template-columns: 1fr;
+        }
+
+        .tesla-stage {
+          min-height: 620px;
+        }
+
+        .mac-window {
+          left: 0;
+          right: auto;
+        }
+
+        .feature-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .shell {
+          width: min(100% - 28px, 1120px);
+        }
+
+        .nav {
+          align-items: flex-start;
+          flex-direction: column;
+          padding: 16px 0;
+        }
+
+        .nav-links {
+          width: 100%;
+          justify-content: space-between;
+          gap: 10px;
+          font-size: 0.88rem;
+        }
+
+        h1 {
+          font-size: clamp(3.4rem, 21vw, 5.4rem);
+        }
+
+        .actions {
+          flex-direction: column;
+        }
+
+        .button {
+          width: 100%;
+        }
+
+        .tesla-stage {
+          min-height: 660px;
+        }
+
+        .app-panel {
+          grid-template-columns: 1fr;
+        }
+
+        .stream {
+          grid-template-columns: 1fr;
+        }
+
+        .car-screen {
+          border-width: 8px;
+          border-radius: 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <nav class="shell nav" aria-label="Primary navigation">
+        <a class="brand" href="#top" aria-label="ExtraDisplay home">
+          <img src="assets/extradisplay-icon.png" alt="" />
+          <span>ExtraDisplay</span>
+        </a>
+        <div class="nav-links">
+          <a href="#features">Features</a>
+          <a href="#setup">Setup</a>
+          <a href="#notes">Notes</a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="shell hero-grid">
+          <div>
+            <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span>Native macOS prototype</p>
+            <h1>ExtraDisplay</h1>
+            <p class="lede">
+              Stream a Mac display to the Tesla browser over your local Wi-Fi network with
+              low-latency WebRTC, then forward Tesla taps back to macOS as clicks.
+            </p>
+            <div class="actions">
+              <a class="button primary" href="#setup">Set it up</a>
+              <a class="button secondary" href="#features">See what it does</a>
+            </div>
+          </div>
+
+          <div class="tesla-stage" aria-label="ExtraDisplay app and Tesla browser preview">
+            <div class="mac-window">
+              <div class="chrome" aria-hidden="true"><span></span><span></span><span></span></div>
+              <div class="app-panel">
+                <img src="assets/extradisplay-icon.png" alt="ExtraDisplay app icon" />
+                <div>
+                  <h2>Share your Mac display</h2>
+                  <p>Start the local server, choose a display in the sender page, then open the viewer URL in the Tesla browser.</p>
+                  <div class="control-row">
+                    <span class="url">http://&lt;mac-ip&gt;:8080</span>
+                    <span class="pill">Live</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="car-screen">
+              <div class="stream">
+                <div class="screen-main">
+                  <div class="display-card">
+                    <strong>Mac display stream</strong>
+                    <div class="bars" aria-hidden="true">
+                      <i></i>
+                      <i></i>
+                      <i></i>
+                    </div>
+                  </div>
+                </div>
+                <div class="touch-panel">
+                  <div class="touch-tile">
+                    <span>Transport</span>
+                    <strong>WebRTC</strong>
+                  </div>
+                  <div class="touch-tile">
+                    <span>Tesla taps</span>
+                    <strong>macOS clicks</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="features">
+        <div class="shell">
+          <h2>A local second-screen experiment for the Tesla browser.</h2>
+          <p class="section-lede">
+            ExtraDisplay keeps the signaling and controls on your Mac, uses the browser-native
+            WebRTC path for realtime video, and stays focused on local network use.
+          </p>
+          <div class="feature-grid">
+            <article class="feature">
+              <b aria-hidden="true">01</b>
+              <h3>Native Mac controller</h3>
+              <p>Launch the SwiftUI app, start the local server, and check Screen Recording and Accessibility permissions in one place.</p>
+            </article>
+            <article class="feature">
+              <b aria-hidden="true">02</b>
+              <h3>Tesla browser viewer</h3>
+              <p>Open the URL shown by the app, usually <code>http://&lt;mac-ip&gt;:8080</code>, and view the selected Mac display.</p>
+            </article>
+            <article class="feature">
+              <b aria-hidden="true">03</b>
+              <h3>Touch forwarding</h3>
+              <p>Optional Accessibility access converts taps on the Tesla page into left-click events on macOS.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="setup">
+        <div class="shell setup">
+          <div>
+            <h2>Setup path</h2>
+            <p class="section-lede">
+              The current prototype is designed for a Mac, an iPhone Personal Hotspot, macOS
+              Internet Sharing, and the Tesla browser on the Wi-Fi network created by the Mac.
+            </p>
+          </div>
+          <div class="steps">
+            <article class="step">
+              <div>
+                <h3>Create the local network</h3>
+                <p>Connect iPhone to Mac over USB, enable Personal Hotspot, then share from iPhone USB to Wi-Fi in macOS Internet Sharing.</p>
+              </div>
+            </article>
+            <article class="step">
+              <div>
+                <h3>Launch ExtraDisplay</h3>
+                <p>Open the macOS app, grant Accessibility permission if you want touch forwarding, and press Start.</p>
+              </div>
+            </article>
+            <article class="step">
+              <div>
+                <h3>Share the display</h3>
+                <p>Use the sender page on the Mac to choose the display or experimental virtual display you want to stream.</p>
+              </div>
+            </article>
+            <article class="step">
+              <div>
+                <h3>Open it in Tesla</h3>
+                <p>In the Tesla browser, visit the URL shown by ExtraDisplay and use the car screen as the viewer.</p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="notice" id="notes">
+      <div class="shell">
+        <p>
+          <strong>Prototype status:</strong> ExtraDisplay is intended for local use on your own Mac.
+          Automatic <code>car.display</code> resolution and the native in-app sender pipeline are still in progress.
+          The software virtual display path is experimental.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
